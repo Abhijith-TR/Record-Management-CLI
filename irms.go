@@ -15,8 +15,17 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// Functionality to be added
-// 3. Allow user to specify which columns contain what values
+const (
+	missingArg = "enter valid arguments"
+	readInputFail = "could not read input"
+	jsonBuildFail = "could not build json"
+	reqFail = "could not send request"
+	decodeFail = "could not decode response"
+	fileOpenFail = "could not open file"
+	fileReadFail = "could not read file"
+	reqBuildFail = "could not build request"
+	invalidDegree = "invalid degree"
+)
 
 var env map[string]string
 
@@ -108,41 +117,40 @@ func readPassword() (string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	password, err := reader.ReadString('\n')
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf(readInputFail)
 	}
 	password = strings.TrimSpace(password)
 	if len(password) == 0 {
-		return "", fmt.Errorf("empty password")
+		return "", fmt.Errorf(missingArg)
 	}
 	return password, err
 }
 
 func handleLogin(ctx *cli.Context) error {
 	if ctx.NArg() != 1 {
-		return fmt.Errorf("invalid username")
+		return fmt.Errorf(missingArg)
 	}
 	password, err := readPassword()
 	if err != nil {
-		fmt.Println(err.Error())
-		return nil
+		return err
 	}
 	postBody, err := json.Marshal(map[string]string {
 		"email": ctx.Args().Get(0),
 		"password": password,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf(jsonBuildFail)
 	}
 	responseBody := bytes.NewBuffer(postBody)
 	res, err := http.Post(env["WEBSITE"]+"/authorize/admin", "application/json", responseBody)
 	if err != nil {
-		return err
+		return fmt.Errorf(reqFail)
 	}
 	defer res.Body.Close()
 	var data map[string]interface{}
 	err = json.NewDecoder(res.Body).Decode(&data)
 	if err != nil {
-		return err
+		return fmt.Errorf(decodeFail)
 	}
 	msg, ok := data["msg"].(string)
 	if ok {
@@ -157,18 +165,18 @@ func handleLogin(ctx *cli.Context) error {
 
 func handlebInsert(ctx *cli.Context) error {
 	if ctx.NArg() != 2 {
-		return fmt.Errorf("please provide file name")
+		return fmt.Errorf(missingArg)
 	}
 	fileName := string(ctx.Args().Get(0))
 	sheetName := string(ctx.Args().Get(1))
 	f, err := excelize.OpenFile(fileName)
 	if err != nil {
-		return fmt.Errorf("could not open .xlsx file")
+		return fmt.Errorf(fileOpenFail)
 	}
 	defer f.Close()
 	rows, err := f.GetRows(sheetName)
 	if err != nil {
-		return fmt.Errorf("could not read .xlsx file")
+		return fmt.Errorf(fileReadFail)
 	}
 	for idx, row := range rows {
 		postBody, err := json.Marshal(map[string]string {
@@ -191,28 +199,28 @@ func handlebInsert(ctx *cli.Context) error {
 		})
 		if err != nil {
 			f.SetCellValue(sheetName, "E"+fmt.Sprint(idx+1), "Failed")
-			return fmt.Errorf("could not build json body")
+			return fmt.Errorf(jsonBuildFail)
 		}
 		responseBody := bytes.NewBuffer(postBody)
 		client := &http.Client{}
 		req, err := http.NewRequest("POST", env["WEBSITE"]+"/admin/records/single", responseBody)
 		if err != nil {
 			f.SetCellValue(sheetName, "E"+fmt.Sprint(idx+1), "Failed")
-			return fmt.Errorf("request formation failed")
+			return fmt.Errorf(reqBuildFail)
 		}
 		req.Header.Add("Authorization", "Bearer " + env["TOKEN"])
 		req.Header.Set("Content-Type", "application/json")
 		res, err := client.Do(req)
 		if err != nil {
 			f.SetCellValue(sheetName, "E"+fmt.Sprint(idx+1), "Failed")
-			return fmt.Errorf("request failed")
+			return fmt.Errorf(reqFail)
 		}
 		defer res.Body.Close()
 		var data map[string]interface{}
 		err = json.NewDecoder(res.Body).Decode(&data)
 		if err != nil {
 			f.SetCellValue(sheetName, "E"+fmt.Sprint(idx+1), "Failed")
-			return fmt.Errorf("could not decode response")
+			return fmt.Errorf(decodeFail)
 		}
 		f.SetCellValue(sheetName, "E"+fmt.Sprint(idx+1), data["msg"])
 	}
@@ -222,32 +230,32 @@ func handlebInsert(ctx *cli.Context) error {
 
 func handlesInsert(ctx *cli.Context) error {
 	if ctx.NArg() != 2 {
-		return fmt.Errorf("enter valid arguments")
+		return fmt.Errorf(missingArg)
 	}
 	postBody, err := json.Marshal(map[string]string {
 		"subjectCode": ctx.Args().Get(0),
 		"subjectName": ctx.Args().Get(1),
 	})
 	if err != nil {
-		return fmt.Errorf("could not create json object")
+		return fmt.Errorf(jsonBuildFail)
 	}
 	responseBody := bytes.NewBuffer(postBody)
 	client := &http.Client{}
 	req, err := http.NewRequest("POST", env["WEBSITE"]+"/admin/records", responseBody)
 	if err != nil {
-		return fmt.Errorf("request formulation failed")
+		return fmt.Errorf(reqBuildFail)
 	}
 	req.Header.Add("Authorization", "Bearer " + env["TOKEN"])
 	req.Header.Set("Content-Type", "application/json")
 	res, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed")
+		return fmt.Errorf(reqFail)
 	}
 	defer res.Body.Close()
 	var data map[string]interface{}
 	err = json.NewDecoder(res.Body).Decode(&data)
 	if err != nil {
-		return fmt.Errorf("could not decode response")
+		return fmt.Errorf(decodeFail)
 	}
 	fmt.Println(data["msg"])
 	return nil
@@ -255,20 +263,20 @@ func handlesInsert(ctx *cli.Context) error {
 
 func registerUsers(ctx *cli.Context) error {
 	if ctx.NArg() != 2 || len(ctx.String("degree")) == 0 {
-		return fmt.Errorf("enter valid arguments to function")
+		return fmt.Errorf(missingArg)
 	}
 	if ctx.String("degree") != "B.Tech" && ctx.String("degree") != "M.Tech" && ctx.String("degree") != "PhD" {
-		return fmt.Errorf("invalid degree")
+		return fmt.Errorf(invalidDegree)
 	}
 	fileName, sheetName := ctx.Args().Get(0), ctx.Args().Get(1)
 	f, err := excelize.OpenFile(fileName)
 	if err != nil {
-		return fmt.Errorf("cannot open input file")
+		return fmt.Errorf(fileOpenFail)
 	}
 	defer f.Close()
 	rows, err := f.GetRows(sheetName)
 	if err != nil {
-		return fmt.Errorf("cannot read rows from the sheet")
+		return fmt.Errorf(fileReadFail)
 	}
 	for idx, row := range rows {
 		postBody, err := json.Marshal(map[string]string {
@@ -278,28 +286,28 @@ func registerUsers(ctx *cli.Context) error {
 		})
 		if err != nil {
 			f.SetCellValue(sheetName, "C"+fmt.Sprint(idx+1), "Not inserted")
-			return fmt.Errorf("could not formulate json")
+			return fmt.Errorf(jsonBuildFail)
 		}
 		responseBody := bytes.NewBuffer(postBody)
 		client := &http.Client{}
 		req, err := http.NewRequest("POST", env["WEBSITE"] + "/admin/register/user", responseBody)
 		if err != nil {
 			f.SetCellValue(sheetName, "C"+fmt.Sprint(idx+1), "Not inserted")
-			return fmt.Errorf("could not formulate request")
+			return fmt.Errorf(reqBuildFail)
 		}
 		req.Header.Add("Authorization", "Bearer " + env["TOKEN"])
 		req.Header.Set("Content-Type", "application/json")
 		res, err := client.Do(req)
 		if err != nil {
 			f.SetCellValue(sheetName, "C"+fmt.Sprint(idx+1), "Not inserted")
-			return fmt.Errorf("request failed")
+			return fmt.Errorf(reqFail)
 		}
 		defer res.Body.Close()
 		var data map[string]interface{}
 		err = json.NewDecoder(res.Body).Decode(&data)
 		if err != nil {
 			f.SetCellValue(sheetName, "C"+fmt.Sprint(idx+1), "Not inserted")
-			return fmt.Errorf("could not decode response")
+			return fmt.Errorf(decodeFail)
 		}
 		f.SetCellValue(sheetName, "C"+fmt.Sprint(idx+1), data["msg"])
 	}

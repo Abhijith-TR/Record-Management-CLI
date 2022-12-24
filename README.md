@@ -33,3 +33,8 @@
    ```
    irms register --degree <val> <file path> <sheet name>
    ```
+5. Help
+
+   ```
+   irms help <command>
+   ```
